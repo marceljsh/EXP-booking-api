@@ -11,11 +11,18 @@ import (
 func main() {
 	router := gin.Default()
 	router.GET("/books", getBooks)
-	router.GET("/books/:id", bookById)
+	// router.GET("/books/:id", bookById)
+	// router.GET("/books/:slug", bookBySlug)
 	router.POST("/books", createBook)
 	router.PATCH("/checkout", checkoutBook)
 	router.PATCH("/return", returnBook)
-	router.Run("127.0.0.1:8080")
+	router.GET("/welcome", func(ctx *gin.Context) {
+		firstname := ctx.DefaultQuery("firstname", "Guest")
+		lastname := ctx.Query("lastname") // shortcut for ctx.Request.URL.Query().Get("lastname")
+
+		ctx.String(http.StatusOK, "Hello %s %s", firstname, lastname)
+	})
+	router.Run("localhost:8080")
 }
 
 type book struct {
@@ -23,69 +30,118 @@ type book struct {
 	Title    string `json:"title"`
 	Author   string `json:"author"`
 	Quantity int    `json:"quantity"`
+	Slug     string `json:"slug"`
+}
+
+func (b book) String() string {
+	return fmt.Sprintf("%v|%v|%v|%v|%v", b.ID, b.Title, b.Author, b.Quantity, b.Slug)
 }
 
 var books = []book{
-	{ID: "1", Title: "Mein Kampft", Author: "Adolf Hitler", Quantity: 69},
-	{ID: "2", Title: "Communist Manifesto", Author: "Friedrich Engels", Quantity: 420},
-	{ID: "3", Title: "Das Kapital", Author: "Karl Marx", Quantity: 31},
+	{ID: "1", Title: "Mein Kampft", Author: "Adolf Hitler", Quantity: 69, Slug: "mein-kampft"},
+	{ID: "2", Title: "Communist Manifesto", Author: "Friedrich Engels", Quantity: 420, Slug: "communist-manifesto"},
+	{ID: "3", Title: "Das Kapital", Author: "Karl Marx", Quantity: 31, Slug: "das-kapital"},
 }
 
-func getBooks(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, books)
-}
+func getBooks(ctx *gin.Context) {
+	id, ok_id := ctx.GetQuery("id")
+	slug, ok_slug := ctx.GetQuery("slug")
 
-func bookById(c *gin.Context) {
-	id := c.Param("id")
-	book, err := getBookById(id)
+	fmt.Printf("==> id:%v | slug:%v\n", id, slug)
 
-	if err != nil {
-		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Book not found."})
-		return
+	if ok_id && ok_slug {
+		ctx.IndentedJSON(http.StatusBadRequest, gin.H{"message": "ID and Slug cannot be used as Index simultaneously."})
+	} else if !ok_id && !ok_slug {
+		ctx.IndentedJSON(http.StatusOK, books)
+	} else if ok_id {
+		book, err := getBookById(id)
+		if err != nil {
+			ctx.IndentedJSON(http.StatusNotFound, gin.H{"message": err})
+			return
+		}
+
+		ctx.IndentedJSON(http.StatusOK, book)
+	} else if ok_slug {
+		book, err := getBookBySlug(slug)
+		if err != nil {
+			ctx.IndentedJSON(http.StatusNotFound, gin.H{"message": err})
+			return
+		}
+
+		ctx.IndentedJSON(http.StatusOK, book)
 	}
-
-	c.IndentedJSON(http.StatusOK, book)
 }
 
-func checkoutBook(c *gin.Context) {
-	id, ok := c.GetQuery("id")
+/* ======================== using wild card, conflicted ======================== */
+// func bookById(c *gin.Context) {
+// 	id := ctx.Param("id")
+// 	book, err := getBookById(id)
+
+// 	if err != nil {
+// 		ctx.IndentedJSON(http.StatusNotFound, gin.H{"message": "Book with such id not found."})
+// 		return
+// 	}
+
+// 	ctx.IndentedJSON(http.StatusOK, book)
+// }
+
+// func bookBySlug(c *gin.Context) {
+// 	slug, ok := ctx.GetQuery("slug")
+// 	if !ok {
+// 		ctx.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Missing slug query parameter."})
+// 		return
+// 	}
+
+// 	book, err := getBookBySlug(slug)
+
+// 	if err != nil {
+// 		ctx.IndentedJSON(http.StatusNotFound, gin.H{"message": "Book with such slug not found."})
+// 		return
+// 	}
+
+// 	ctx.IndentedJSON(http.StatusOK, book)
+// }
+/* ============================================================================= */
+
+func checkoutBook(ctx *gin.Context) {
+	id, ok := ctx.GetQuery("id")
 
 	if !ok {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Missing id query parameter."})
+		ctx.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Missing id query parameter."})
 		return
 	}
 
 	book, err := getBookById(id)
 	if err != nil {
-		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Book not found."})
+		ctx.IndentedJSON(http.StatusNotFound, gin.H{"message": "Book not found."})
 		return
 	}
 
 	if book.Quantity <= 0 {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Book not available"})
+		ctx.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Book not available"})
 		return
 	}
 
 	book.Quantity--
-	c.IndentedJSON(http.StatusOK, book)
+	ctx.IndentedJSON(http.StatusOK, book)
 }
 
-func returnBook(c *gin.Context) {
-	id, ok := c.GetQuery("id")
+func returnBook(ctx *gin.Context) {
+	id, ok := ctx.GetQuery("id")
 
 	if !ok {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Missing id query parameter."})
+		ctx.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Missing id query parameter."})
 		return
 	}
 
 	book, err := getBookById(id)
 	if err != nil {
-		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Book not found."})
+		ctx.IndentedJSON(http.StatusNotFound, gin.H{"message": "Book not found."})
 		return
 	}
 
 	book.Quantity++
-	c.IndentedJSON(http.StatusOK, book)
+	ctx.IndentedJSON(http.StatusOK, book)
 }
 
 func getBookById(id string) (*book, error) {
@@ -95,17 +151,27 @@ func getBookById(id string) (*book, error) {
 		}
 	}
 
-	return nil, errors.New("book not found")
+	return nil, errors.New("book with such ID not found")
 }
 
-func createBook(c *gin.Context) {
+func getBookBySlug(slug string) (*book, error) {
+	for i, b := range books {
+		if b.Slug == slug {
+			return &books[i], nil
+		}
+	}
+
+	return nil, errors.New("book with such slug not found")
+}
+
+func createBook(ctx *gin.Context) {
 	var newBook book
 
-	if err := c.BindJSON(&newBook); err != nil {
+	if err := ctx.BindJSON(&newBook); err != nil {
 		fmt.Println(err)
 		return
 	}
 
 	books = append(books, newBook)
-	c.IndentedJSON(http.StatusCreated, newBook)
+	ctx.IndentedJSON(http.StatusCreated, newBook)
 }
